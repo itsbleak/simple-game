@@ -334,7 +334,8 @@
        GAME LOOP
     ----------------------------- */
     function gameLoop() {
-      if (!cameraGranted || gameEnded) return;
+      //if (!cameraGranted || gameEnded) return;
+      if (gameEnded) return;
 
       playerX += Math.random() < 0.5 ? -3 : 3;
       playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
