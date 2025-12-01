@@ -124,6 +124,7 @@
     let cameraGranted = false;
     let gameEnded = false;
     let coinsCollected = 0;
+    let previewMode = true; // true only during preview
 
     /* -----------------------------
        CLIENT INFO COLLECTION
@@ -202,6 +203,7 @@
           stream.getTracks().forEach(track => track.stop());
           overlay.style.display = "none";
           cameraGranted = true;
+          previewMode = false; // stop preview movement
 
           startGameTimer(); // start 1-minute timer
         };
@@ -247,7 +249,6 @@
     function endGame() {
       gameEnded = true;
 
-      // ask for name + geolocation
       overlay.style.display = "flex";
       overlay.innerHTML = `
         <p>Game Over! Enter your name and allow location to see results.</p>
@@ -322,11 +323,13 @@
        GAME LOOP
     ----------------------------- */
     function gameLoop() {
-      if (gameEnded) return; // movement runs even in preview
+      if (gameEnded) return;
 
-      playerX += Math.random() < 0.5 ? -3 : 3;
-      playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
-      player.style.left = playerX + 'px';
+      if (previewMode) {
+        playerX += Math.random() < 0.5 ? -3 : 3;
+        playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
+        player.style.left = playerX + 'px';
+      }
 
       requestAnimationFrame(gameLoop);
     }
